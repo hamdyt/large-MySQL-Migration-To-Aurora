@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion : 2010-09-09
+Parameters:
+  BucketName:
+    Type: String
+    Description: S3 Bucket Name
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+    DependsOn:
+      - TriggeringLambdaPermission
+    Properties:
+      BucketName: !Ref BucketName
+      AccessControl: Private
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt ProcessingLambdaFunction.Arn
+
+  TriggeringLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref ProcessingLambdaFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub 'arn:aws:s3:::${BucketName}'
+      SourceAccount: !Ref AWS::AccountId
+
+  TriggeringLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+        - PolicyName: allowLogging
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - logs:*
+              Resource: arn:aws:logs:*:*:*
+        - PolicyName: writeItemsToDynamoDB
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+              - dynamodb:PutItem
+              Resource:  'arn:aws:dynamodb:*:*:*'
+
+  ProcessingLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: s3-event-trigger-lambda-function
+      Code:
+        ZipFile: >
+          const AWS = require('aws-sdk');
+          const documentClient = new AWS.DynamoDB.DocumentClient();
+          exports.handler = async function(event, context) {
+              for await (const record of event.Records) {
+              const {object} = record.s3;
+              const{key} = object;
+              const params = {
+                'TableName': 'migration-metadata-table',
+                'Item': {
+                  'uuid': randomIdGenerator(),
+                  'fileName': key,
+                  'status':'unprocessed'
+                    } 
+                  };
+                await saveItemToDB(params);
+                }
+              }
+          const randomIdGenerator = ()=>{
+              return (new Date()).getTime().toString(36) + Math.random().toString(36).slice(2);
+            }
+          const saveItemToDB = item => {
+            return new Promise((res,rej)=>{
+            documentClient.put(item, function(err, data) {
+              if (err) rej(err);
+                      else res();
+                });
+              })
+            }  
+      Handler: index.handler
+      Role: !GetAtt TriggeringLambdaRole.Arn
+      Runtime: nodejs14.x
+      MemorySize: 512
+      Timeout: 120
