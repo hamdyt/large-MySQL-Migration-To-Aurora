@@ -17,6 +17,7 @@ The following architecture diagram depicts the end to end migration flow
 - EC2Instance_Consumer.yaml: This stack creates an EC2 instance that Check Aurora for active database connections and importing databases in Aurora using MySQL import by     downloading the sql file from S3 
 - RDS_MySql.yaml: This stack creates an Amazon Aurora RDS instance to host migrated databases.
 - S3WithLambdaTrigger.yaml: this stack creates an S3 bucket to host the database files and a Lambda Event trigger on PUT of new objects on S3. This lambda stores the metadata of the sql output file in DynamoDB
+- The .sh files are used for import/export of MySQL dump files
 
 # Important
 - In the main MigrationStack.yaml, for every stack you will need to replace its relevant S3 object path. 
